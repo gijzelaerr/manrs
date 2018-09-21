@@ -1,0 +1,9 @@
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+DataFormat: SPDXRef-1
+Creator: Organization: ISOC
+Created: 2018-06-19T00:00:00Z
+PackageName: MANRS benchmarking tool
+PackageOriginator: Organization: ISOC
+PackageLicenseDeclared: AGPL-3.0-only
+PackageCopyrightText: 2018, ISOC and the MANRS benchmarking tool contributors
