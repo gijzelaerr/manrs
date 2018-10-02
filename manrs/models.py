@@ -28,10 +28,20 @@ class Result(Base):
     m2c_data = Column(JSONB)
     m3 = Column(Float)
     m3_data = Column(JSONB)
+    m4 = Column(Float)
+    m4_data = Column(JSONB)
+    m5 = Column(Float)
+    m5_data = Column(JSONB)
+    m5c = Column(Float)
+    m5c_data = Column(JSONB)
     m6 = Column(Boolean)
     m6_data = Column(JSONB)
     m7irr = Column(Float)
     m7irr_data = Column(JSONB)
+    m7rpki = Column(Float)
+    m7rpki_data = Column(JSONB)
+    m7rpkin = Column(Float)
+    m7rpkin_data = Column(JSONB)
     m8 = Column(Boolean)
     m8_data = Column(JSONB)
 
@@ -39,7 +49,7 @@ class Result(Base):
 
     @classmethod
     def valid_metrics(cls):
-        return ['m1', 'm1c', 'm2', 'm2c', 'm3', 'm6', 'm7irr', 'm8']
+        return ['m1', 'm1c', 'm2', 'm2c', 'm3', 'm4', 'm5', 'm5c', 'm6', 'm7irr', 'm7rpki', 'm7rpkin, ''m8']
 
 
 class ReportType(enum.Enum):
@@ -78,14 +88,24 @@ class GlobalStats(Base):
     m2c_median = Column(Float)
     m3_mean = Column(Float)
     m3_median = Column(Float)
+    m4 = Column(Float)
+    m4_data = Column(JSONB)
+    m5 = Column(Float)
+    m5_data = Column(JSONB)
+    m5c = Column(Float)
+    m5c_data = Column(JSONB)
     m6_mode = Column(Boolean)
     m7irr_mean = Column(Float)
     m7irr_median = Column(Float)
+    m7rpkis = Column(Float)
+    m7rpkis_data = Column(JSONB)
+    m7rpkin = Column(Float)
+    m7rpkin_data = Column(JSONB)
     m8_mode = Column(Boolean)
 
     report = relationship("Report", back_populates="stats")
 
-    __table_args__ = (ForeignKeyConstraint(['report_id'], [Report.id]),)
+    __table_args__ = (ForeignKeyConstraint(('report_id', ), [Report.id]),)
 
     @classmethod
     def get_statistics_calculations(cls):
@@ -95,7 +115,12 @@ class GlobalStats(Base):
             'm2': ['mean', 'median'],
             'm2c': ['mean', 'median'],
             'm3': ['mean', 'median'],
+            'm4': ['mean', 'median'],
+            'm5': ['mean', 'median'],
+            'm5c': ['mean', 'median'],
             'm6': ['mode'],
             'm7irr': ['mean', 'median'],
+            'm7rpki': ['mean', 'median'],
+            'm7rpkin': ['mean', 'median'],
             'm8': ['mode'],
         }
