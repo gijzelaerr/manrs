@@ -15,7 +15,7 @@ from manrs.models import Report, Result
 import config
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s',)
 
 Session = sessionmaker(config.DB_ENGINE)
 
@@ -111,15 +111,51 @@ def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List
     m3s    = sampler(mu[4], sigma[4], num)
     m7irrs = sampler(mu[5], sigma[5], num)
     
-    m6 = (random() < m6_ratio for _ in range(num))
-    m8 = (random() < m8_ratio for _ in range(num))
-    
-    zipped = zip(reports, m1s, m1cs, m2s, m2cs, m3s, m6, m7irrs, m8)
+    m6s = (random() < m6_ratio for _ in range(num))
+    m8s = (random() < m8_ratio for _ in range(num))
+
+    # 99% of ASN have an m4 of 0, 1% in a value between 1 and 100
+    if random() < 0.99:
+        m4s = [0] * num
+    else:
+        m4s = (random() * 100 for _ in range(num))
+
+    # 10% of ASNs have m5=0, 80% 0.5 and 10% between 1 and 4
+    m5_random = random()
+    if m5_random < 0.1:
+        m5s = [0] * num
+    elif 0.1 < m5_random < 0.9:
+        m5s = [0.5] * num
+    else:
+        m5s = (1 + (random() * 3) for _ in range(num))
+
+    # 10% of ASNs have mc5 = 0, 70% 0.5 and 20% between 1 and 20
+    m5c_random = random()
+    if m5c_random < 0.1:
+        m5cs = [0] * num
+    elif 0.1 < m5c_random < 0.8:
+        m5cs = [0.5] * num
+    else:
+        m5cs = (1 + (random() * 19) for _ in range(num))
+
+    # 70% of ASN have an m7rpki of 1, 5% in a value between 0 and 0.5
+    if random() < 0.7:
+        m7rpkis = [1] * num
+    else:
+        m7rpkis = (random() / 2. for _ in range(num))
+
+    # 98% of ASN have an m7rpkin of 0, 2% in a value between 0.1 and 0.2
+    if random() < 0.7:
+        m7rpkins = [1] * num
+    else:
+        m7rpkins = (random() / 2. for _ in range(num))
+
+    zipped = zip(reports, m1s, m1cs, m2s, m2cs, m3s, m4s, m5s, m5cs, m6s, m7irrs, m7rpkis, m7rpkins, m8s)
     
     results = []
-    for report, m1, m1c, m2, m2c, m3, m6, m7irr, m8 in zipped:
-        results.append(Result(asn=asn, report=report, m1=m1, m1c=m1c, m2=m2,
-                              m2c=m2c, m3=m3, m6=m6, m7irr=m7irr, m8=m8))
+    for report, m1, m1c, m2, m2c, m3, m4, m5, m5c, m6, m7irr, m7rpki, m7rpkin, m8 in zipped:
+        results.append(Result(asn=asn, report=report, m1=m1, m1c=m1c, m2=m2, m2c=m2c, m3=m3, m4=m4, m5=m5, m5c=m5c,
+                              m6=m6, m7irr=m7irr, m7rpki=m7rpki, m7rpkin=m7rpkin, m8=m8))
     return results
         
 
@@ -157,11 +193,15 @@ def generate_asn_data(asn_stats: List, real_asns: List[int], reports: List[Repor
     # generate new ASNs, making sure we don't have duplicates
     logger.info(f"Generating list of {amount} ASNs from the range {min_} to {max_} while skipping "
                 f"{len(real_asns)} existing ASns")
-    try:
-        new_asns = sample(set(range(min_, max_)) - set(real_asns), amount)
-    except ValueError:
-        logger.error(f"Not enough free ASNs in range {min_}-{max_}! Number of existing ASNs: {len(real_asns)}")
-        return []
+
+    if amount == 0:
+        new_asns = set(range(min_, max_)) - set(real_asns)
+    else:
+        try:
+            new_asns = sample(set(range(min_, max_)) - set(real_asns), amount)
+        except ValueError:
+            logger.error(f"Not enough free ASNs in range {min_}-{max_}! Number of existing ASNs: {len(real_asns)}")
+            return []
 
     results = []
     logger.info("Generating statistics and reports for each ASN")
@@ -207,14 +247,18 @@ def reports_subcommand(args):
     else:
         logger.warning("Not committing changes to database, supply -c to commit")
 
+
 def parse():
     parser = ArgumentParser()
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
                                        help='additional help')
 
+    parser.set_defaults(func=lambda x: parser.print_help())
+
     asn_parser = subparsers.add_parser('asns')
-    asn_parser.add_argument('-n', '--number', type=int, help='Number of ASNs you want to simulate', default=60000)
+    asn_parser.add_argument('-n', '--number', type=int, help='Number of ASNs you want to simulate, '
+                                                             'set to 0 for full range', default=60000)
     asn_parser.add_argument('-i', '--min', type=int, help='Minimum ASN number', default=0)
     asn_parser.add_argument('-a', '--max', type=int, help='Maximum ASN number', default=65000)
     asn_parser.add_argument('-c', '--commit', help='Commit changes to database', action='store_true')

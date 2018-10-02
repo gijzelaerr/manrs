@@ -7,9 +7,9 @@ import logging
 from sqlalchemy import create_engine
 
 # PostgreSQL configuration.
-POSTGRESQL_USER = "manrs"
-POSTGRESQL_PASS = "manrs"
-POSTGRESQL_DB = "manrs"
+POSTGRESQL_USER = "gijs"
+POSTGRESQL_PASS = "$maiken$"
+POSTGRESQL_DB = "gijs"
 POSTGRESQL_HOST = "localhost"
 POSTGRESQL_PORT = "5432"
 
