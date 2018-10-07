@@ -46,10 +46,13 @@ def gen_dates(start: datetime, number: int):
         yield cursor
 
 
-def sampler(mu: float, sigma: float, num: int):
+def sampler(mu: float, sigma: float, num: int) -> np.array:
     """
     samples from a random distribution and clips values below 0
     """
+    if mu == np.nan or sigma == np.nan:
+        return [None] * num
+
     samples = np.random.normal(mu, sigma, num)
     return np.clip(samples, a_min=0, a_max=None)
 
@@ -75,8 +78,8 @@ def get_stats(session: Session, asn: int):
     R = Result  # simple shortcut alias
     float_rows = session.query(R.m1, R.m1c, R.m2, R.m2c, R.m3, R.m7irr).filter(Result.asn == asn).all()
     array = np.array(float_rows, dtype=float)
-    mu = np.mean(array, axis=0)
-    sigma = np.std(array, axis=0)
+    mu = np.nanmean(array, axis=0)
+    sigma = np.nanstd(array, axis=0)
     
     bool_rows = session.query(R.m6, R.m8).filter(Result.asn == asn).all()
     m6, m8 = list(zip(*bool_rows))
