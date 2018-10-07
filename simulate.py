@@ -2,7 +2,7 @@
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
-from random import random, sample, choice
+from random import random, sample, choice, uniform
 from typing import Iterable, List
 from argparse import ArgumentParser
 import logging
@@ -130,7 +130,7 @@ def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List
     elif 0.1 < m5_random < 0.9:
         m5s = [0.5] * num
     else:
-        m5s = (1 + (random() * 3) for _ in range(num))
+        m5s = (uniform(1, 4) for _ in range(num))
 
     # 10% of ASNs have mc5 = 0, 70% 0.5 and 20% between 1 and 20
     m5c_random = random()
@@ -139,19 +139,19 @@ def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List
     elif 0.1 < m5c_random < 0.8:
         m5cs = [0.5] * num
     else:
-        m5cs = (1 + (random() * 19) for _ in range(num))
+        m5cs = (uniform(1, 20) for _ in range(num))
 
-    # 70% of ASN have an m7rpki of 1, 5% in a value between 0 and 0.5
+    # 95% of ASN have an m7rpki of 0, 5% in a value between 0.95 and 1
     if random() < 0.7:
-        m7rpkis = [1] * num
+        m7rpkis = [0] * num
     else:
-        m7rpkis = (random() / 2. for _ in range(num))
+        m7rpkis = (uniform(0.95, 1) for _ in range(num))
 
     # 98% of ASN have an m7rpkin of 0, 2% in a value between 0.1 and 0.2
-    if random() < 0.7:
-        m7rpkins = [1] * num
+    if random() < 0.98:
+        m7rpkins = [0] * num
     else:
-        m7rpkins = (random() / 2. for _ in range(num))
+        m7rpkins = (uniform(0.1, 0.2) for _ in range(num))
 
     zipped = zip(reports, m1s, m1cs, m2s, m2cs, m3s, m4s, m5s, m5cs, m6s, m7irrs, m7rpkis, m7rpkins, m8s)
     
