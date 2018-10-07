@@ -3,9 +3,10 @@
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from random import random, sample, choice, uniform
-from typing import Iterable, List
+from typing import Iterable, List, Tuple, Set
 from argparse import ArgumentParser
 import logging
+import warnings
 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
@@ -22,15 +23,15 @@ Session = sessionmaker(config.DB_ENGINE)
 month = relativedelta(months=1)
 
 
-def get_asns(session: Session):
+def get_asns(session: Session) -> Set[int]:
     asns = session.query(Result.asn).distinct().all()
-    logger.info(f"Fetched {len(asns)} from the database")
-    return [i[0] for i in asns]
+    logger.info(f"Fetched {len(asns)} ASNs from the database")
+    return {i[0] for i in asns}
 
 
 def get_reports(session: Session):
     reports = session.query(Report.id, Report.period_start).all()
-    logger.info(f"Fetched {len(reports)} from the database")
+    logger.info(f"Fetched {len(reports)} reports from the database")
     return reports
 
 
@@ -40,7 +41,6 @@ def get_last_report(session: Session):
 
 def gen_dates(start: datetime, number: int):
     cursor = start
-    # while cursor < datetime.now() + relativedelta(years=1):
     for _ in range(number):
         cursor += month
         yield cursor
@@ -73,13 +73,17 @@ def generate_reports(new_dates: Iterable[datetime]):
     return reports
 
 
-def get_stats(session: Session, asn: int):
+def get_stats(session: Session, asn: int) -> (Tuple[float, ...], Tuple[float, ...], Tuple[float, ...]):
     """Build up a statistical model of a specific asn"""
     R = Result  # simple shortcut alias
     float_rows = session.query(R.m1, R.m1c, R.m2, R.m2c, R.m3, R.m7irr).filter(Result.asn == asn).all()
     array = np.array(float_rows, dtype=float)
-    mu = np.nanmean(array, axis=0)
-    sigma = np.nanstd(array, axis=0)
+
+    with warnings.catch_warnings():
+        # surpress the warning printed on empty slice (all values are empty in the database)
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mu = tuple(np.nanmean(array, axis=0))
+        sigma = tuple(np.nanstd(array, axis=0))
     
     bool_rows = session.query(R.m6, R.m8).filter(Result.asn == asn).all()
     m6, m8 = list(zip(*bool_rows))
@@ -88,24 +92,26 @@ def get_stats(session: Session, asn: int):
     if m6_total:
         m6_ratio = sum(bool(i) for i in m6) / m6_total
     else:
-        m6_ratio = 0
+        m6_ratio = 0.
     
     m8_total = sum(type(i) == bool for i in m8)
     if m8_total:
         m8_ratio = sum(bool(i) for i in m8) / m8_total
     else:
-        m8_ratio = 0
+        m8_ratio = 0.
+
+    ratio = (m6_ratio, m8_ratio)
         
-    return mu, sigma, m6_ratio, m8_ratio
+    return mu, sigma, ratio
 
 
-def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List[float],
-                   m6_ratio: float, m8_ratio: float):
+def generate_stats(reports: List[Report], asn: int, mu: Tuple[float, ...], sigma: Tuple[float, ...],
+                   ratio: Tuple[float, ...]) -> List[Result]:
     """
     Simulates datapoints for a ASN for every report based on the stats defined in mu and sigma arrays.
     """
     num = len(reports)
-    logger.info(f"Generating datapoints for ASN {asn} and with {num} reports")
+    logger.debug(f"Generating datapoints for ASN {asn} and with {num} reports")
     
     m1s    = sampler(mu[0], sigma[0], num)
     m1cs   = sampler(mu[1], sigma[1], num)
@@ -114,8 +120,8 @@ def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List
     m3s    = sampler(mu[4], sigma[4], num)
     m7irrs = sampler(mu[5], sigma[5], num)
     
-    m6s = (random() < m6_ratio for _ in range(num))
-    m8s = (random() < m8_ratio for _ in range(num))
+    m6s = (random() < ratio[0] for _ in range(num))
+    m8s = (random() < ratio[1] for _ in range(num))
 
     # 99% of ASN have an m4 of 0, 1% in a value between 1 and 100
     if random() < 0.99:
@@ -162,7 +168,7 @@ def generate_stats(reports: List[Report], asn: int, mu: List[float], sigma: List
     return results
         
 
-def generate_new_reports(session: Session, new_dates: List[datetime], asns: List[int]):
+def generate_new_reports(session: Session, new_dates: List[datetime], asns: Set[int]):
     """
     generate new reports objects in the database. For every date and ASN given it will create an entry in
     the results table
@@ -172,12 +178,12 @@ def generate_new_reports(session: Session, new_dates: List[datetime], asns: List
 
     results = []
     for asn in asns:
-        mu, sigma, m6_ratio, m8_ratio = get_stats(session, asn)
-        results += generate_stats(reports, asn, mu, sigma, m6_ratio, m8_ratio)
+        mu, sigma, ratio = get_stats(session, asn)
+        results += generate_stats(reports, asn, mu, sigma, ratio)
     return results
 
 
-def get_all_stats(session: Session, asns: List[int]):
+def get_all_stats(session: Session, asns: Set[int]):
     """
     returns all statistical values for the given list of ASNs
     """
@@ -188,29 +194,46 @@ def get_all_stats(session: Session, asns: List[int]):
     return all_stats
 
 
-def generate_asn_data(asn_stats: List, real_asns: List[int], reports: List[Report], min_: int=0, max_: int=65000,
-                      amount: int=60000):
+def generate_asn_data(asn_stats: List, real_asns: Set[int], reports: List[Report], min_: int=0, max_: int=65000,
+                      amount: int=60000, incr: int=300, decr: int=100) -> List[Result]:
     """
     Generate new ASN data based on a list of existing ASNs
     """
     # generate new ASNs, making sure we don't have duplicates
     logger.info(f"Generating list of {amount} ASNs from the range {min_} to {max_} while skipping "
-                f"{len(real_asns)} existing ASns")
-
-    if amount == 0:
-        new_asns = set(range(min_, max_)) - set(real_asns)
-    else:
-        try:
-            new_asns = sample(set(range(min_, max_)) - set(real_asns), amount)
-        except ValueError:
-            logger.error(f"Not enough free ASNs in range {min_}-{max_}! Number of existing ASNs: {len(real_asns)}")
-            return []
+                f"{len(real_asns)} existing ASns. For each time step we randomly increment {incr} and randomly "
+                f"decrement {decr}")
 
     results = []
-    logger.info("Generating statistics and reports for each ASN")
-    for asn in new_asns:
-        mu, sigma, m6_ratio, m8_ratio = choice(asn_stats)
-        results += generate_stats(reports, asn, mu, sigma, m6_ratio, m8_ratio)
+
+    asn_range = set(range(min_, max_))
+
+    if amount == 0:
+        new_asns = asn_range - real_asns
+        for asn in new_asns:
+            mu, sigma, ratio = choice(asn_stats)
+            results += generate_stats(reports, asn, mu, sigma, ratio)
+    else:
+        try:
+            new_asns = set(sample(asn_range - real_asns, amount))
+        except ValueError:
+            logger.error(f"Not enough free ASNs left in range {min_}-{max_}")
+        else:
+            for report in reports:
+
+                logger.info(f"generating reports for {len(new_asns)} ASNs")
+                for asn in new_asns:
+                    mu, sigma, ratio = choice(asn_stats)
+                    results += generate_stats([report], asn, mu, sigma, ratio)
+
+                [new_asns.remove(i) for i in sample(new_asns, min(len(new_asns), decr))]
+                existing = (real_asns | new_asns)
+                sampling_range = asn_range - existing
+                try:
+                    new_asns |= set(sample(sampling_range, incr))
+                except ValueError:
+                    logger.error(f"Not enough free ASNs left in range {min_}-{max_}")
+
     return results
 
 
@@ -221,7 +244,8 @@ def asns_subcommand(args):
     old_reports = get_old_reports(session)
     asns = get_asns(session)
     asn_stats = get_all_stats(session, asns)
-    results = generate_asn_data(asn_stats, asns, old_reports, min_=args.min, max_=args.max, amount=args.number)
+    results = generate_asn_data(asn_stats, asns, old_reports, min_=args.min, max_=args.max, amount=args.number,
+                                incr=args.incr, decr=args.decr)
     session.add_all(results)
     logger.info(f"Inserting {len(results)} new rows to the results")
     if args.commit:
@@ -260,10 +284,15 @@ def parse():
     parser.set_defaults(func=lambda x: parser.print_help())
 
     asn_parser = subparsers.add_parser('asns')
-    asn_parser.add_argument('-n', '--number', type=int, help='Number of ASNs you want to simulate, '
+    asn_parser.add_argument('-a', '--number', type=int, help='Number of ASNs you want to simulate, '
                                                              'set to 0 for full range', default=60000)
-    asn_parser.add_argument('-i', '--min', type=int, help='Minimum ASN number', default=0)
-    asn_parser.add_argument('-a', '--max', type=int, help='Maximum ASN number', default=65000)
+
+    asn_parser.add_argument('-n', '--min', type=int, help='Minimum ASN number', default=0)
+    asn_parser.add_argument('-x', '--max', type=int, help='Maximum ASN number', default=65000)
+
+    asn_parser.add_argument('-i', '--incr', type=int, help='Number of random ASN increments', default=300)
+    asn_parser.add_argument('-d', '--decr', type=int, help='Number of random ASN decrements', default=100)
+
     asn_parser.add_argument('-c', '--commit', help='Commit changes to database', action='store_true')
     asn_parser.set_defaults(func=asns_subcommand)
 
